@@ -1,0 +1,17 @@
+version: '3'
+services:
+  backend:
+    build: backend
+    volumes:
+      # Mount the root folder that contains .git
+      - .:/workspace:cached
+    command: sleep infinity
+    links:
+      - frontend
+
+  frontend:
+    build: frontend
+    volumes:
+      # Mount the root folder that contains .git
+      - .:/workspace:cached
+    command: sleep infinity
