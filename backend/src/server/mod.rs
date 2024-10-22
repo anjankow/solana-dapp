@@ -20,6 +20,7 @@ impl Server {
         let router = Router::new()
             .route("/", get(handlers::handler))
             .route("/api/v1/users", post(handlers::users::post_user))
+            .route("/api/v1/users/:pubkey", get(handlers::users::get_user))
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind(bind_address).await?;
@@ -61,6 +62,8 @@ impl From<crate::domain::error::Error> for ErrorResp {
         let status = match &value {
             crate::domain::error::Error::GeneralError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             crate::domain::error::Error::InvalidPubKey(_) => StatusCode::BAD_REQUEST,
+            crate::domain::error::Error::UserNotFound => StatusCode::NOT_FOUND,
+            crate::domain::error::Error::UserAlreadyInitialized => StatusCode::BAD_REQUEST,
         };
 
         let mut error_resp = value.to_string();

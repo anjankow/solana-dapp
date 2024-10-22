@@ -1,20 +1,31 @@
+use crate::domain::error::Error;
 use crate::domain::model::user::User;
-use crate::repo::error::Error;
+use solana_sdk::pubkey::Pubkey;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub struct UserRepo {
-    repo: HashMap<String, User>,
+    repo: HashMap<Pubkey, User>,
 }
 
 impl UserRepo {
     pub fn new() -> UserRepo {
         UserRepo {
-            repo: HashMap::<String, User>::new(),
+            repo: HashMap::<Pubkey, User>::new(),
         }
     }
-    pub fn add(&mut self, user: User) -> Result<(), crate::domain::error::Error> {
-        self.repo.insert(user.pubkey.to_string(), user);
+    pub fn add(&mut self, user: User) -> Result<(), Error> {
+        if self.repo.contains_key(&user.pubkey) {
+            return Err(Error::UserAlreadyInitialized);
+        }
+        self.repo.insert(user.pubkey, user);
         Ok(())
+    }
+
+    pub fn get(&self, pubkey: Pubkey) -> Result<User, Error> {
+        self.repo
+            .get(&pubkey)
+            .map(|u| u.clone())
+            .ok_or(Error::UserNotFound)
     }
 }

@@ -1,5 +1,4 @@
-use axum::extract::{Json, State};
-use axum::Error;
+use axum::extract::{Json, Path, State};
 use serde::{Deserialize, Serialize};
 
 use crate::server::AppState;
@@ -27,11 +26,23 @@ pub async fn post_user(
     Ok(Json(PostUserResp { nonce: user.nonce }))
 }
 
-struct GetUserNonceResp {
+#[derive(Serialize)]
+pub struct GetUserResp {
     pubkey: String,
+    username: String,
     nonce: u64,
 }
 
-pub async fn get_user_nonce() -> Result<axum::response::Json<GetUserNonceResp>, Error> {
-    todo!()
+pub async fn get_user(
+    State(state): State<AppState>,
+    Path(pubkey): Path<String>,
+) -> Result<Json<GetUserResp>, ErrorResp> {
+    let user_mgr = state.get_user_mgr();
+
+    let user = user_mgr.get_user(&pubkey)?;
+    Ok(Json(GetUserResp {
+        pubkey: user.pubkey.to_string(),
+        username: user.username,
+        nonce: user.nonce,
+    }))
 }

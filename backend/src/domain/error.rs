@@ -2,6 +2,8 @@
 pub enum Error {
     GeneralError(String),
     InvalidPubKey(String),
+    UserNotFound,
+    UserAlreadyInitialized,
 }
 
 impl From<solana_sdk::pubkey::ParsePubkeyError> for Error {
@@ -15,6 +17,8 @@ impl std::fmt::Display for Error {
         match self {
             Error::GeneralError(msg) => write!(f, "GeneralError: {}", msg),
             Error::InvalidPubKey(msg) => write!(f, "InvalidPubkey: {}", msg),
+            Error::UserNotFound => write!(f, "UserNotFound"),
+            Error::UserAlreadyInitialized => write!(f, "UserAlreadyInitialized"),
         }
     }
 }
