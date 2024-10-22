@@ -34,8 +34,10 @@ name = "anti-loneliness-solana-dapp"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-macros",
  "num-bigint",
  "rand 0.8.5",
+ "serde",
  "solana-sdk",
  "tokio",
 ]
@@ -239,6 +241,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.82",
 ]
 
 [[package]]

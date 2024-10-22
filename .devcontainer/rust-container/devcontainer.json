@@ -19,7 +19,8 @@
 				"ms-azuretools.vscode-docker",
 				"geeebe.duplicate",
 				"tamasfe.even-better-toml",
-				"jinxdash.prettier-rust"
+				"jinxdash.prettier-rust",
+				"rangav.vscode-thunder-client"
 			]
 		}
 	},
