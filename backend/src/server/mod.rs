@@ -1,26 +1,49 @@
 mod app_state;
 mod handlers;
 
-use crate::server::app_state::AppState;
+use crate::{domain::services::solana_service, server::app_state::AppState};
 use axum::{
     routing::{delete, get, post, put},
     Router,
 };
 
-pub struct Server {}
+#[derive(Clone)]
+pub struct Config {
+    pub solana: solana_service::Config,
+}
+
+impl Config {
+    pub fn default() -> Config {
+        Config {
+            solana: solana_service::Config::default(),
+        }
+    }
+}
+
+pub struct Server {
+    cfg: Config,
+}
 
 impl Server {
-    pub fn new() -> Server {
-        Server {}
+    pub fn new(cfg: Config) -> Server {
+        Server { cfg }
     }
 
-    pub async fn run(&self, bind_address: &str) -> Result<(), std::io::Error> {
-        let state = AppState::new();
+    pub async fn run(
+        &self,
+        bind_address: &str,
+        program_keypair: Keypair,
+    ) -> Result<(), std::io::Error> {
+        let state = AppState::new(self.cfg.clone(), program_keypair);
 
         let router = Router::new()
             .route("/", get(handlers::handler))
-            .route("/api/v1/users", post(handlers::users::post_user))
             .route("/api/v1/users/:pubkey", get(handlers::users::get_user))
+            .route("/api/v1/auth/register", get(handlers::auth::post_register))
+            .route(
+                "/api/v1/auth/register/complete",
+                get(handlers::auth::post_register_complete),
+            )
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind(bind_address).await?;
@@ -50,6 +73,7 @@ impl IntoResponse for ErrorResp {
 }
 
 use serde::Serialize;
+use solana_sdk::signature::Keypair;
 #[derive(Serialize)]
 pub struct ErrorResp {
     #[serde(skip_serializing)]
@@ -64,6 +88,9 @@ impl From<crate::domain::error::Error> for ErrorResp {
             crate::domain::error::Error::InvalidPubKey(_) => StatusCode::BAD_REQUEST,
             crate::domain::error::Error::UserNotFound => StatusCode::NOT_FOUND,
             crate::domain::error::Error::UserAlreadyInitialized => StatusCode::BAD_REQUEST,
+            crate::domain::error::Error::TransactionNotFound => StatusCode::NOT_FOUND,
+            crate::domain::error::Error::InvalidTransaction => StatusCode::BAD_REQUEST,
+            crate::domain::error::Error::TransactionExpired => StatusCode::FORBIDDEN,
         };
 
         let mut error_resp = value.to_string();

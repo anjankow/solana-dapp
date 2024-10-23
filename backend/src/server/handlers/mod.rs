@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod users;
 
 pub async fn handler() -> axum::response::Html<&'static str> {

@@ -1,26 +1,32 @@
-use crate::domain::logic::user_mgr::UserMgr;
-use crate::{domain::model::user::User, repo::user_repo::UserRepo};
+use crate::domain::services::solana_service::{self, SolanaService};
+use crate::domain::services::user_service::UserService;
+use crate::{domain::model::User, repo::Repo};
 use axum::extract::State;
+use solana_sdk::signature::Keypair;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct AppState {
     // pub dbcp: Arc<DbConnPool>,
     // pub auth_mgr: AuthMgr,
-    user_repo: Arc<Mutex<UserRepo>>,
+    repo: Arc<Mutex<Repo>>,
+    solana: solana_service::SolanaService,
 }
 
 impl AppState {
-    //
-    pub fn new(/*dbcp: DbConnPool*/) -> Self {
+    pub fn new(
+        cfg: crate::server::Config,
+        program_keypair: Keypair, /*dbcp: DbConnPool*/
+    ) -> Self {
         // let dbcp = Arc::new(dbcp);
-        // let auth_mgr = AuthMgr::new(user_repo.clone());
-        let user_repo = Arc::new(Mutex::new(UserRepo::new(/*dbcp.clone()*/)));
+        // let auth_mgr = AuthMgr::new(repo.clone());
+        let repo = Arc::new(Mutex::new(Repo::new(/*dbcp.clone()*/)));
+        let solana = solana_service::SolanaService::new(cfg.solana.clone(), program_keypair);
 
-        Self { user_repo }
+        Self { repo, solana }
     }
 
-    pub fn get_user_mgr(self) -> UserMgr {
-        UserMgr::new(self.user_repo)
+    pub fn get_user_service(self) -> UserService {
+        UserService::new(self.repo, self.solana)
     }
 }
