@@ -23,6 +23,12 @@ impl From<solana_client::client_error::ClientError> for Error {
     }
 }
 
+impl From<borsh::io::Error> for Error {
+    fn from(value: borsh::io::Error) -> Self {
+        Error::GeneralError(format!("Ser/Deser failed: {}", value.to_string()))
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
