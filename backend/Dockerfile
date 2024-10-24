@@ -2,6 +2,7 @@ FROM rust:1.81.0-slim-bookworm
 
 # instal tools for solana program development
 RUN apt update && apt install -y \
+        bzip2 \
         curl \
         protobuf-compiler \ 
         libudev-dev
