@@ -138,25 +138,23 @@ mod tests {
         let wallet_pubkey = wallet.pubkey();
         println!("WALLET PUBKEY: {}", wallet_pubkey.to_string());
 
-        let blockhash = solana.client.get_latest_blockhash().unwrap();
-        let s = solana
-            .client
-            .request_airdrop_with_config(
-                &wallet_pubkey,
-                100,
-                solana_client::rpc_config::RpcRequestAirdropConfig {
-                    recent_blockhash: Some(blockhash.to_string()),
-                    commitment: Some(CommitmentConfig::finalized()),
-                },
-            )
+        Command::new("solana")
+            .arg("airdrop")
+            .arg("--commitment")
+            .arg("finalized")
+            .arg("1")
+            .arg(format!("{}", wallet_pubkey.to_string()))
+            .spawn()
+            .unwrap()
+            .wait()
             .unwrap();
-        println!("Airdrop signature: {}", s);
 
         let message = solana.create_user_pda(wallet_pubkey).unwrap();
 
         // Now sign the message and create a transaction
         // let signature = wallet.sign_message(message.serialize().as_slice());
 
+        let blockhash = solana.client.get_latest_blockhash().unwrap();
         let transaction = transaction::Transaction::new(&[wallet], message, blockhash);
 
         let client_sign = solana
