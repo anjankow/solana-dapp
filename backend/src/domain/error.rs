@@ -7,7 +7,7 @@ pub enum Error {
     // no such transaction is known to the server
     TransactionNotFound,
     // transaction data is invalid or a signature is missing
-    InvalidTransaction,
+    InvalidTransaction(String),
     TransactionExpired,
 }
 
@@ -29,6 +29,12 @@ impl From<borsh::io::Error> for Error {
     }
 }
 
+impl From<solana_sdk::transaction::TransactionError> for Error {
+    fn from(value: solana_sdk::transaction::TransactionError) -> Self {
+        Error::InvalidTransaction(format!("{}", value.to_string()))
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -37,7 +43,7 @@ impl std::fmt::Display for Error {
             Error::UserNotFound => write!(f, "UserNotFound"),
             Error::UserAlreadyInitialized => write!(f, "UserAlreadyInitialized"),
             Error::TransactionNotFound => write!(f, "TransactionNotFound"),
-            Error::InvalidTransaction => write!(f, "InvalidTransaction"),
+            Error::InvalidTransaction(msg) => write!(f, "InvalidTransaction: {}", msg),
             Error::TransactionExpired => write!(f, "TransactionExpired"),
         }
     }

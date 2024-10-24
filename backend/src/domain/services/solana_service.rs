@@ -70,6 +70,7 @@ impl SolanaService {
         let seeds = &[USER_PDA_PREFIX, wallet_pubkey.as_ref()];
         let (pda_pubkey, pda_bump_seed) =
             Pubkey::find_program_address(seeds, &self.program.pubkey());
+        // println!("PDA pubkey: {}", pda_pubkey);
 
         let instr_data =
             instruction::ProgramInstruction::Initialize(instruction::InitializeInstructionData {
@@ -104,12 +105,15 @@ impl SolanaService {
         // message: Message,
         // signature: Signature,
     ) -> Result<Signature, Error> {
-        // let mut transaction = Transaction::new_unsigned(message);
-        // transaction
-        //     .replace_signatures(&[(wallet_pubkey, signature)])
-        //     .unwrap();
+        // Make sure that the transaction is valid and signed by this user.
+        signed_transaction.verify()?;
+        let pos = signed_transaction.get_signing_keypair_positions(&[wallet_pubkey])?;
+        if pos.len() == 0 || pos.get(0).is_none() {
+            return Err(Error::InvalidTransaction(
+                "The transaction is not signed by this public key".to_string(),
+            ));
+        }
 
-        // let blockhash = self.client.get_latest_blockhash()?;
         let signature = self
             .client
             .send_and_confirm_transaction(&signed_transaction)?;

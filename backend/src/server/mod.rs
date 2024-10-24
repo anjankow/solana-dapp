@@ -89,7 +89,7 @@ impl From<crate::domain::error::Error> for ErrorResp {
             crate::domain::error::Error::UserNotFound => StatusCode::NOT_FOUND,
             crate::domain::error::Error::UserAlreadyInitialized => StatusCode::BAD_REQUEST,
             crate::domain::error::Error::TransactionNotFound => StatusCode::NOT_FOUND,
-            crate::domain::error::Error::InvalidTransaction => StatusCode::BAD_REQUEST,
+            crate::domain::error::Error::InvalidTransaction(_) => StatusCode::BAD_REQUEST,
             crate::domain::error::Error::TransactionExpired => StatusCode::FORBIDDEN,
         };
 
