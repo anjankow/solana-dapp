@@ -20,9 +20,9 @@ pub async fn post_register(
     State(state): State<AppState>,
     Json(req): Json<PostRegisterReq>,
 ) -> Result<Json<PostRegisterResp>, ErrorResp> {
-    let user_service = state.get_user_service();
-
-    let user = user_service.register_init(&req.pubkey, req.username)?;
+    let user = state
+        .user_service
+        .register_init(&req.pubkey, req.username)?;
     Ok(Json(PostRegisterResp { nonce: 0 })) // todo
 }
 
@@ -43,8 +43,6 @@ pub async fn post_register_complete(
     State(state): State<AppState>,
     Json(req): Json<PostRegisterReq>,
 ) -> Result<Json<LoginCompleteResp>, ErrorResp> {
-    let user_service = state.get_user_service();
-
     // let user = user_service.create_user(&req.pubkey, req.username)?;
     Ok(Json(LoginCompleteResp {
         access_token: todo!(),

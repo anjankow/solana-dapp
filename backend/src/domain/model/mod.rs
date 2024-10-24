@@ -32,11 +32,17 @@ pub struct TransactionRecord {
     pub pubkey: solana_sdk::pubkey::Pubkey,
     pub message_hash: solana_sdk::hash::Hash,
     pub valid_until: std::time::SystemTime,
+    pub callback: Option<TransactionCallback>,
 }
 
 pub struct TransactionToSign {
     pub message: Message,
     pub transaction_id: Uuid,
     pub valid_until: SystemTime,
-    pub callback: String,
+}
+
+#[derive(Clone, PartialEq)]
+
+pub enum TransactionCallback {
+    RegisterComplete,
 }

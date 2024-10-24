@@ -1,5 +1,8 @@
 mod instruction;
-use std::{sync::Arc, time};
+use std::{
+    sync::Arc,
+    time::{self, SystemTime},
+};
 
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -12,8 +15,15 @@ use solana_sdk::{
     system_instruction,
     transaction::{self, Transaction},
 };
+use uuid::Uuid;
 
-use crate::domain::error::Error;
+use crate::{
+    domain::{
+        error::Error,
+        model::{TransactionCallback, TransactionRecord, TransactionToSign},
+    },
+    repo::solana::Repo,
+};
 
 const USER_PDA_PREFIX: &[u8] = b"user";
 
@@ -23,6 +33,7 @@ pub struct Config {
     rpc_client_url: String,
     commitment_config: CommitmentConfig,
     timeout_sec: u64,
+    transaction_validity_sec: u32,
 }
 
 impl Config {
@@ -32,6 +43,7 @@ impl Config {
             rpc_client_url: "http://localhost:8899".to_string(),
             commitment_config: CommitmentConfig::confirmed(),
             timeout_sec: 5,
+            transaction_validity_sec: 3600,
         }
     }
 }
@@ -41,10 +53,11 @@ pub struct SolanaService {
     cfg: Config,
     program: Arc<Keypair>,
     client: Arc<solana_client::rpc_client::RpcClient>,
+    repo: Arc<Repo>,
 }
 
 impl SolanaService {
-    pub fn new(cfg: Config, program: Keypair) -> SolanaService {
+    pub fn new(cfg: Config, program: Keypair, repo: Repo) -> SolanaService {
         let timeout = std::time::Duration::from_secs(cfg.timeout_sec);
         let solana_client = solana_client::rpc_client::RpcClient::new_with_timeout_and_commitment(
             &cfg.rpc_client_url,
@@ -55,10 +68,29 @@ impl SolanaService {
             cfg: cfg,
             program: Arc::new(program),
             client: Arc::new(solana_client),
+            repo: Arc::new(repo),
         }
     }
 
-    pub fn create_user_pda(&self, wallet_pubkey: Pubkey) -> Result<Message, Error> {
+    pub fn get_validate_transaction_record(
+        &self,
+        pubkey: Pubkey,
+        transaction_id: Uuid,
+    ) -> Result<TransactionRecord, Error> {
+        let transaction_record = self.repo.get_transaction_record(transaction_id)?;
+        // validate the received transaction
+        if transaction_record.valid_until.lt(&SystemTime::now()) {
+            return Err(Error::TransactionExpired);
+        }
+        if transaction_record.pubkey.ne(&pubkey) {
+            return Err(Error::InvalidTransaction(
+                "Invalid transaction ID".to_string(),
+            ));
+        }
+        return Ok(transaction_record);
+    }
+
+    pub fn create_user_pda(&self, wallet_pubkey: Pubkey) -> Result<TransactionToSign, Error> {
         let account_size = self.cfg.user_pda_size;
 
         let lamports = self
@@ -91,11 +123,25 @@ impl SolanaService {
         let instruction = Instruction::new_with_bytes(self.program.pubkey(), &instr_data, accounts);
         let message = Message::new(&[instruction], Some(&wallet_pubkey));
 
-        // let blockhash = self.client.get_latest_blockhash()?;
-        // let transaction = Transaction::new_unsigned(message);
+        // Save the transaction record in repo
+        let mut transaction_record = TransactionRecord {
+            id: Uuid::nil(),
+            message_hash: message.hash(),
+            pubkey: wallet_pubkey,
+            valid_until: SystemTime::now()
+                .checked_add(std::time::Duration::from_secs(
+                    self.cfg.transaction_validity_sec as u64,
+                ))
+                .expect("Time adding should never exceed the bounds here"),
+            callback: Some(TransactionCallback::RegisterComplete),
+        };
+        self.repo.add_transaction_record(&mut transaction_record)?;
 
-        // todo: when instruction available
-        Ok(message)
+        Ok(TransactionToSign {
+            message,
+            transaction_id: transaction_record.id,
+            valid_until: transaction_record.valid_until,
+        })
     }
 
     pub fn send_and_confirm_transaction(
@@ -132,6 +178,8 @@ mod tests {
         transaction,
     };
 
+    use crate::repo;
+
     use super::{Config, SolanaService};
 
     #[test]
@@ -153,13 +201,13 @@ mod tests {
             .wait()
             .unwrap();
 
-        let message = solana.create_user_pda(wallet_pubkey).unwrap();
+        let to_sign = solana.create_user_pda(wallet_pubkey).unwrap();
 
         // Now sign the message and create a transaction
         // let signature = wallet.sign_message(message.serialize().as_slice());
 
         let blockhash = solana.client.get_latest_blockhash().unwrap();
-        let transaction = transaction::Transaction::new(&[wallet], message, blockhash);
+        let transaction = transaction::Transaction::new(&[wallet], to_sign.message, blockhash);
 
         let client_sign = solana
             .send_and_confirm_transaction(wallet_pubkey, transaction)
@@ -172,7 +220,7 @@ mod tests {
         cfg.commitment_config = CommitmentConfig::finalized();
         let keypair_path = "solana_program/target/deploy/solana_program-keypair.json";
         let program_keypair = solana_sdk::signer::keypair::read_keypair_file(keypair_path).unwrap();
-
-        SolanaService::new(cfg, program_keypair)
+        let repo = repo::solana::Repo::new();
+        SolanaService::new(cfg, program_keypair, repo)
     }
 }

@@ -15,9 +15,7 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(pubkey): Path<String>,
 ) -> Result<Json<GetUserResp>, ErrorResp> {
-    let user_service = state.get_user_service();
-
-    let user = user_service.get_user(&pubkey)?;
+    let user = state.user_service.get_user(&pubkey)?;
     Ok(Json(GetUserResp {
         pubkey: user.pubkey.to_string(),
         username: user.username,
