@@ -146,6 +146,7 @@ dependencies = [
  "solana-client",
  "solana-sdk",
  "tokio",
+ "tokio-util",
  "uuid",
  "zeroize",
 ]

@@ -2,7 +2,10 @@ mod app_state;
 mod handlers;
 mod middleware;
 
-use crate::{domain::services::solana_service, server::app_state::AppState};
+use crate::{
+    domain::services::{solana_service, user_service},
+    server::app_state::AppState,
+};
 use axum::{
     routing::{get, post},
     Router,
@@ -12,13 +15,17 @@ const ACCESS_TOKEN_TYPE: &str = "Bearer";
 
 #[derive(Clone)]
 pub struct Config {
-    pub solana: solana_service::Config,
+    pub bind_address: String,
+    pub solana_service_config: solana_service::Config,
+    pub user_service_config: user_service::Config,
 }
 
 impl Config {
     pub fn default() -> Config {
         Config {
-            solana: solana_service::Config::default(),
+            bind_address: "127.0.0.1:3000".to_string(),
+            solana_service_config: solana_service::Config::default(),
+            user_service_config: user_service::Config::default(),
         }
     }
 }
@@ -34,10 +41,10 @@ impl Server {
 
     pub async fn run(
         &self,
-        bind_address: &str,
+        auth_secret: Vec<u8>,
         program_keypair: Keypair,
     ) -> Result<(), std::io::Error> {
-        let state = AppState::new(self.cfg.clone(), program_keypair);
+        let state = AppState::new(self.cfg.clone(), auth_secret, program_keypair);
 
         let router = Router::new()
             .route("/", get(handlers::handler))
@@ -49,7 +56,7 @@ impl Server {
             )
             .with_state(state);
 
-        let listener = tokio::net::TcpListener::bind(bind_address).await?;
+        let listener = tokio::net::TcpListener::bind(&self.cfg.bind_address).await?;
 
         println!(
             "listening on {}",

@@ -8,16 +8,14 @@ use uuid::Uuid;
 use super::solana_service;
 
 #[derive(Clone)]
-struct Config {
-    access_token_signing_key: Vec<u8>,
+pub struct Config {
     access_token_validity_sec: u32,
 }
 
 impl Config {
-    fn default() -> Config {
+    pub fn default() -> Config {
         Config {
             access_token_validity_sec: 3600,
-            access_token_signing_key: jwt_simple::prelude::HS256Key::generate().to_bytes(),
         }
     }
 }
@@ -26,15 +24,22 @@ impl Config {
 pub struct UserService {
     cfg: Config,
     repo: Repo,
+    auth_secret: Vec<u8>,
     solana: solana_service::SolanaService,
 }
 
 impl UserService {
-    pub fn new(repo: Repo, solana: solana_service::SolanaService) -> UserService {
+    pub fn new(
+        cfg: Config,
+        repo: Repo,
+        auth_secret: Vec<u8>,
+        solana: solana_service::SolanaService,
+    ) -> UserService {
         UserService {
-            cfg: Config::default(),
-            repo: repo,
-            solana: solana,
+            cfg,
+            auth_secret,
+            repo,
+            solana,
         }
     }
 
@@ -111,7 +116,7 @@ impl UserService {
         use jwt_simple::prelude::*;
 
         // create a new key for the `HS256` JWT algorithm
-        let key = HS256Key::from_bytes(&self.cfg.access_token_signing_key);
+        let key = HS256Key::from_bytes(&self.auth_secret);
         let nonce = Uuid::new_v4();
         let jwt_id = crate::utils::jwt::generate_jwt_id(pubkey, &nonce);
 

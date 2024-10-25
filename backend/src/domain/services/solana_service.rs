@@ -1,26 +1,21 @@
 mod instruction;
-use std::{
-    sync::Arc,
-    time::{self, SystemTime},
-};
+use std::{sync::Arc, time::SystemTime};
 
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     instruction::{AccountMeta, Instruction},
     message::Message,
-    program::{invoke, invoke_signed},
     pubkey::Pubkey,
-    signature::{Keypair, Signature},
+    signature::Keypair,
     signer::Signer,
-    system_instruction,
-    transaction::{self, Transaction},
+    transaction::Transaction,
 };
 use uuid::Uuid;
 
 use crate::{
     domain::{
         error::Error,
-        model::{TransactionCallback, TransactionRecord, TransactionToSign},
+        model::{TransactionRecord, TransactionToSign},
     },
     repo::solana::Repo,
 };
@@ -139,7 +134,6 @@ impl SolanaService {
                     self.cfg.transaction_validity_sec as u64,
                 ))
                 .expect("Time adding should never exceed the bounds here"),
-            callback: Some(TransactionCallback::RegisterComplete),
             client_signature: None,
         };
         self.repo.add_transaction_record(&mut transaction_record)?;
@@ -191,16 +185,13 @@ impl SolanaService {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Read, process::Command, thread};
+    use std::process::Command;
 
     use solana_sdk::{
-        commitment_config::{CommitmentConfig, CommitmentLevel},
-        signature::Keypair,
-        signer::Signer,
-        transaction,
+        commitment_config::CommitmentConfig, signature::Keypair, signer::Signer, transaction,
     };
 
-    use crate::{domain::model::TransactionCallback, repo};
+    use crate::repo;
 
     use super::{Config, SolanaService};
 

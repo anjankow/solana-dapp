@@ -10,7 +10,7 @@ use {
         program_error::ProgramError,
         pubkey::Pubkey,
     },
-    std::{ffi::IntoStringError, mem::size_of},
+    std::mem::size_of,
 };
 
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize, BorshSchema)]

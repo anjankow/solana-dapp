@@ -78,8 +78,6 @@ pub async fn post_register_complete(
 
 #[cfg(test)]
 mod tests {
-
-    use base64_serde::base64_serde_type;
     use bincode::Options;
     use serde::{Deserialize, Serialize};
     use solana_sdk::{
@@ -88,7 +86,7 @@ mod tests {
         message,
         signature::Keypair,
         signer::Signer,
-        system_instruction, transaction,
+        transaction,
     };
 
     #[test]

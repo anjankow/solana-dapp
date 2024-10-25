@@ -1,6 +1,6 @@
 use solana_program::pubkey::Pubkey;
 use solana_program::{decode_error::DecodeError, msg, program_error::PrintProgramError};
-use std::{fmt::Formatter, path::Display};
+use std::fmt::Formatter;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Error {
