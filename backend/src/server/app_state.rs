@@ -1,17 +1,12 @@
-use crate::domain::model::User;
-use crate::domain::services::solana_service::{self, SolanaService};
-use crate::domain::services::user_service::{self, UserService};
+use crate::domain::services::solana_service::SolanaService;
+use crate::domain::services::user_service::UserService;
 use crate::repo;
-use axum::extract::State;
 use solana_sdk::signature::Keypair;
-use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct AppState {
-    // pub dbcp: Arc<DbConnPool>,
-    // pub auth_mgr: AuthMgr,
-    pub user_service: user_service::UserService,
-    pub solana_service: solana_service::SolanaService,
+    pub user_service: UserService,
+    pub solana_service: SolanaService,
 }
 
 impl AppState {
@@ -24,13 +19,12 @@ impl AppState {
         let user_repo = repo::user::Repo::new();
         let solana_repo = repo::solana::Repo::new();
 
-        let solana_service =
-            solana_service::SolanaService::new(cfg.solana.clone(), program_keypair, solana_repo);
+        let solana_service = SolanaService::new(cfg.solana.clone(), program_keypair, solana_repo);
         let user_service = UserService::new(user_repo, solana_service.clone());
 
         Self {
-            user_service: user_service,
-            solana_service: solana_service,
+            user_service,
+            solana_service,
         }
     }
 }

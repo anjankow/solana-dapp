@@ -6,14 +6,25 @@ edition = "2021"
 [dependencies]
 axum = "0.7.7"
 axum-macros = "0.4.2"
+base64 = "0.22.1"
+base64-serde = "0.8.0"
+bincode = "1.3.3"
 borsh = "1.5.1"
 chrono = "0.4.38"
 dotenv = "0.15.0"
+http = "1.1.0"
+jwt-simple = {version="0.12.10", default-features=false, features=["pure-rust"]}
 num-bigint ={ version="0.4.6", features = ["rand"] }
 num_enum = "0.7.3"
 rand = "0.8.5"
 serde = {version="1.0.211", features = ["derive"] }
+serde_json = "1.0.132"
 solana-client = "2.0.13"
 solana-sdk = "2.0.13"
 tokio = {version="1.40.0", features = ["rt", "rt-multi-thread", "tokio-macros", "net", "macros"]}
 uuid ={ version="1.11.0", features=["v4", "fast-rng"]}
+zeroize = { version = "1.7", default-features = false }
+
+# https://github.com/solana-labs/solana/issues/26688#issuecomment-2411153994
+[patch.crates-io]
+curve25519-dalek = { git = "https://github.com/anza-xyz/curve25519-dalek.git", rev = "b500cdc2a920cd5bff9e2dd974d7b97349d61464" }

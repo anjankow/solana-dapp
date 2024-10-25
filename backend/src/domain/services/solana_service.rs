@@ -72,9 +72,15 @@ impl SolanaService {
         }
     }
 
-    pub fn get_validate_transaction_record(
+    pub fn get_user_pda(&self, wallet_pubkey: &Pubkey) -> Pubkey {
+        let seeds = &[USER_PDA_PREFIX, wallet_pubkey.as_ref()];
+        let (pda_pubkey, _) = Pubkey::find_program_address(seeds, &self.program.pubkey());
+        pda_pubkey
+    }
+
+    fn get_validate_transaction_record(
         &self,
-        pubkey: Pubkey,
+        pubkey: &Pubkey,
         transaction_id: Uuid,
     ) -> Result<TransactionRecord, Error> {
         let transaction_record = self.repo.get_transaction_record(transaction_id)?;
@@ -90,7 +96,7 @@ impl SolanaService {
         return Ok(transaction_record);
     }
 
-    pub fn create_user_pda(&self, wallet_pubkey: Pubkey) -> Result<TransactionToSign, Error> {
+    pub fn create_user_pda(&self, wallet_pubkey: &Pubkey) -> Result<TransactionToSign, Error> {
         let account_size = self.cfg.user_pda_size;
 
         let lamports = self
@@ -114,7 +120,7 @@ impl SolanaService {
         // The accounts required by both our on-chain program and the system program's
         // `create_account` instruction, including the vault's address.
         let accounts = vec![
-            AccountMeta::new(wallet_pubkey, true /* is_signer */),
+            AccountMeta::new(*wallet_pubkey, true /* is_signer */),
             AccountMeta::new(pda_pubkey, false),
             AccountMeta::new_readonly(solana_sdk::system_program::ID, false),
         ];
@@ -127,13 +133,14 @@ impl SolanaService {
         let mut transaction_record = TransactionRecord {
             id: Uuid::nil(),
             message_hash: message.hash(),
-            pubkey: wallet_pubkey,
+            pubkey: *wallet_pubkey,
             valid_until: SystemTime::now()
                 .checked_add(std::time::Duration::from_secs(
                     self.cfg.transaction_validity_sec as u64,
                 ))
                 .expect("Time adding should never exceed the bounds here"),
             callback: Some(TransactionCallback::RegisterComplete),
+            client_signature: None,
         };
         self.repo.add_transaction_record(&mut transaction_record)?;
 
@@ -144,26 +151,41 @@ impl SolanaService {
         })
     }
 
-    pub fn send_and_confirm_transaction(
+    pub fn execute_transaction(
         &self,
-        wallet_pubkey: Pubkey,
+        wallet_pubkey: &Pubkey,
+        transaction_id: Uuid,
         signed_transaction: Transaction,
-        // message: Message,
-        // signature: Signature,
-    ) -> Result<Signature, Error> {
+    ) -> Result<(), Error> {
+        let mut transaction_record =
+            self.get_validate_transaction_record(&wallet_pubkey, transaction_id)?;
+
         // Make sure that the transaction is valid and signed by this user.
+        if signed_transaction
+            .message()
+            .hash()
+            .ne(&transaction_record.message_hash)
+        {
+            return Err(Error::InvalidTransaction(
+                "Transaction message hash doesn't match the original".to_string(),
+            ));
+        }
         signed_transaction.verify()?;
-        let pos = signed_transaction.get_signing_keypair_positions(&[wallet_pubkey])?;
+        let pos = signed_transaction.get_signing_keypair_positions(&[*wallet_pubkey])?;
         if pos.len() == 0 || pos.get(0).is_none() {
             return Err(Error::InvalidTransaction(
                 "The transaction is not signed by this public key".to_string(),
             ));
         }
 
+        // All checks passed, now we can submit the transaction.
         let signature = self
             .client
             .send_and_confirm_transaction(&signed_transaction)?;
-        Ok(signature)
+        transaction_record.client_signature = Some(signature);
+        self.repo.update_transaction_record(&transaction_record)?;
+
+        Ok(())
     }
 }
 
@@ -178,7 +200,7 @@ mod tests {
         transaction,
     };
 
-    use crate::repo;
+    use crate::{domain::model::TransactionCallback, repo};
 
     use super::{Config, SolanaService};
 
@@ -201,18 +223,23 @@ mod tests {
             .wait()
             .unwrap();
 
-        let to_sign = solana.create_user_pda(wallet_pubkey).unwrap();
-
-        // Now sign the message and create a transaction
-        // let signature = wallet.sign_message(message.serialize().as_slice());
+        let to_sign = solana.create_user_pda(&wallet_pubkey).unwrap();
 
         let blockhash = solana.client.get_latest_blockhash().unwrap();
         let transaction = transaction::Transaction::new(&[wallet], to_sign.message, blockhash);
 
-        let client_sign = solana
-            .send_and_confirm_transaction(wallet_pubkey, transaction)
+        solana
+            .execute_transaction(&wallet_pubkey, to_sign.transaction_id, transaction)
             .unwrap();
-        println!("Client signature: {}", client_sign);
+
+        let transaction_record = solana
+            .get_validate_transaction_record(&wallet_pubkey, to_sign.transaction_id)
+            .unwrap();
+        assert!(transaction_record.client_signature.is_some());
+        println!(
+            "Client signature: {}",
+            transaction_record.client_signature.unwrap()
+        );
     }
 
     fn new_solana_service() -> SolanaService {

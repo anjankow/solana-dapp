@@ -1,8 +1,6 @@
 pub mod solana {
     use crate::domain::error::Error;
-    use crate::domain::model::{AccessToken, TransactionRecord, User};
-    use solana_sdk::pubkey::Pubkey;
-    use solana_sdk::transaction;
+    use crate::domain::model::TransactionRecord;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
@@ -37,6 +35,15 @@ pub mod solana {
             Ok(id)
         }
 
+        pub fn update_transaction_record(
+            &self,
+            transaction_record: &TransactionRecord,
+        ) -> Result<(), Error> {
+            let mut transactions = self.transactions.lock().unwrap();
+            transactions.insert(transaction_record.id, transaction_record.clone());
+            Ok(())
+        }
+
         pub fn delete_transaction_record(&self, record_id: Uuid) -> Result<(), Error> {
             let mut transactions = self.transactions.lock().unwrap();
             transactions.remove(&record_id);
@@ -47,25 +54,20 @@ pub mod solana {
 
 pub mod user {
     use crate::domain::error::Error;
-    use crate::domain::model::{AccessToken, TransactionRecord, User};
+    use crate::domain::model::User;
     use solana_sdk::pubkey::Pubkey;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
-    use uuid::Uuid;
 
     #[derive(Clone)]
     pub struct Repo {
         users: Arc<Mutex<HashMap<Pubkey, User>>>,
-        access_tokens: Arc<Mutex<HashMap<(String, Pubkey), AccessToken>>>,
     }
 
     impl Repo {
         pub fn new() -> Repo {
             Repo {
                 users: Arc::new(Mutex::new(HashMap::<Pubkey, User>::new())),
-                access_tokens: Arc::new(
-                    Mutex::new(HashMap::<(String, Pubkey), AccessToken>::new()),
-                ),
             }
         }
 
@@ -78,29 +80,17 @@ pub mod user {
             Ok(())
         }
 
-        pub fn get_user(&self, pubkey: Pubkey) -> Result<User, Error> {
+        pub fn get_user(&self, pubkey: &Pubkey) -> Result<User, Error> {
             let users = self.users.lock().unwrap();
             users
-                .get(&pubkey)
+                .get(pubkey)
                 .map(|u| u.clone())
                 .ok_or(Error::UserNotFound)
         }
 
-        pub fn update_user(&self, user: User) -> Result<(), Error> {
+        pub fn update_user(&self, user: &User) -> Result<(), Error> {
             let mut users = self.users.lock().unwrap();
-            users.insert(user.pubkey, user);
-            Ok(())
-        }
-
-        pub fn insert_access_token(&self, access_token: AccessToken) -> Result<(), Error> {
-            let mut access_tokens = self.access_tokens.lock().unwrap();
-            access_tokens.insert(
-                (
-                    access_token.access_token.clone(),
-                    access_token.pubkey.clone(),
-                ),
-                access_token,
-            );
+            users.insert(user.pubkey, user.clone());
             Ok(())
         }
     }

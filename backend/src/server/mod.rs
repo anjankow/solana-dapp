@@ -1,11 +1,14 @@
 mod app_state;
 mod handlers;
+mod middleware;
 
 use crate::{domain::services::solana_service, server::app_state::AppState};
 use axum::{
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Router,
 };
+
+const ACCESS_TOKEN_TYPE: &str = "Bearer";
 
 #[derive(Clone)]
 pub struct Config {
@@ -39,10 +42,10 @@ impl Server {
         let router = Router::new()
             .route("/", get(handlers::handler))
             .route("/api/v1/users/:pubkey", get(handlers::users::get_user))
-            .route("/api/v1/auth/register", get(handlers::auth::post_register))
+            .route("/api/v1/auth/register", post(handlers::auth::post_register))
             .route(
                 "/api/v1/auth/register/complete",
-                get(handlers::auth::post_register_complete),
+                post(handlers::auth::post_register_complete),
             )
             .with_state(state);
 
@@ -79,6 +82,15 @@ pub struct ErrorResp {
     #[serde(skip_serializing)]
     status_code: StatusCode,
     error: String,
+}
+
+impl ErrorResp {
+    pub fn new(status_code: StatusCode, error: &str) -> ErrorResp {
+        ErrorResp {
+            status_code: status_code,
+            error: error.to_string(),
+        }
+    }
 }
 
 impl From<crate::domain::error::Error> for ErrorResp {
