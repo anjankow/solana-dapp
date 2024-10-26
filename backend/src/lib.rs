@@ -1,5 +1,5 @@
 pub mod app_state;
-mod domain;
+pub mod domain;
 mod repo;
 pub mod server;
-mod utils;
+pub mod utils;

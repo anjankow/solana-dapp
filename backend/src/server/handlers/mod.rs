@@ -7,7 +7,7 @@ use crate::{
 use bincode::Options;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
+use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
 use std::str::FromStr;
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -32,13 +32,20 @@ pub struct TransactionResp {
 }
 
 impl TransactionResp {
-    fn from(model: &model::TransactionToSign, request_uri: String) -> Self {
+    pub fn new(model: &model::TransactionToSign, request_uri: String) -> Self {
         TransactionResp {
             message: model.message.serialize(),
             transaction_id: model.transaction_id.to_string(),
             valid_until: model.valid_until,
             request_uri: request_uri,
         }
+    }
+
+    pub fn deserialize_message(&self) -> Result<Message, Error> {
+        let message: Message = bincode::deserialize(&self.message).map_err(|e| {
+            Error::InvalidTransaction(format!("Failed to deserialize message: {}", e.to_string()))
+        })?;
+        Ok(message)
     }
 }
 
@@ -56,7 +63,7 @@ impl SignedTransaction {
             .map_err(|err| {
                 ErrorResp::new(
                     StatusCode::BAD_REQUEST,
-                    &format!("Failed to deserialized transaction: {}", err.to_string()),
+                    &format!("Failed to deserialize transaction, should be serialized to bincode with little endian: {}", err.to_string()),
                 )
             })?;
         let transaction_id = Uuid::from_str(&self.transaction_id).map_err(|_| {
@@ -64,6 +71,52 @@ impl SignedTransaction {
         })?;
 
         Ok((transaction_id, transaction))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use solana_sdk::{instruction::AccountMeta, message::Message, transaction::Transaction};
+    use uuid::Uuid;
+
+    use crate::domain::model::TransactionToSign;
+
+    use super::TransactionResp;
+
+    #[test]
+    fn serialize_transaction_message() {
+        let message = get_example_message();
+
+        let model_transaction = TransactionToSign {
+            message: message.clone(),
+            transaction_id: Uuid::new_v4(),
+            valid_until: SystemTime::now(),
+        };
+        let transaction = TransactionResp::new(&model_transaction, "localhost:9999".to_string());
+        assert!(transaction.message.len() > 0);
+        assert_eq!(&transaction.request_uri, "localhost:9999");
+
+        let deserialized_message = transaction.deserialize_message().unwrap();
+        assert_eq!(message.hash(), deserialized_message.hash());
+    }
+
+    #[test]
+    fn serialize_transaction() {}
+
+    fn get_example_message() -> Message {
+        let accounts = vec![AccountMeta::new_readonly(
+            solana_sdk::system_program::ID,
+            true,
+        )];
+        let instruction = solana_sdk::instruction::Instruction::new_with_bytes(
+            solana_sdk::system_program::ID,
+            &vec![1, 2, 3, 4, 5, 6, 7, 8],
+            accounts,
+        );
+        let message = Message::new(&[instruction], Some(&solana_sdk::system_program::ID));
+        message
     }
 }
 

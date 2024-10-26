@@ -8,8 +8,11 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::Keypair,
     signer::Signer,
+    sysvar::recent_blockhashes,
     transaction::Transaction,
+    transaction::TransactionError,
 };
+
 use uuid::Uuid;
 
 use crate::{
@@ -24,11 +27,11 @@ const USER_PDA_PREFIX: &[u8] = b"user";
 
 #[derive(Clone)]
 pub struct Config {
-    user_pda_size: usize,
-    rpc_client_url: String,
-    commitment_config: CommitmentConfig,
-    timeout_sec: u64,
-    transaction_validity_sec: u32,
+    pub user_pda_size: usize,
+    pub rpc_client_url: String,
+    pub commitment_config: CommitmentConfig,
+    pub timeout_sec: u64,
+    pub transaction_validity_sec: u32,
 }
 
 impl Config {
@@ -120,9 +123,11 @@ impl SolanaService {
             AccountMeta::new_readonly(solana_sdk::system_program::ID, false),
         ];
 
-        // Create the instruction by serializing our instruction data via borsh
+        // Prepare the final message
+        let recent_blockhash = self.client.get_latest_blockhash()?;
         let instruction = Instruction::new_with_bytes(self.program.pubkey(), &instr_data, accounts);
-        let message = Message::new(&[instruction], Some(&wallet_pubkey));
+        let message =
+            Message::new_with_blockhash(&[instruction], Some(&wallet_pubkey), &recent_blockhash);
 
         // Save the transaction record in repo
         let mut transaction_record = TransactionRecord {
@@ -161,7 +166,7 @@ impl SolanaService {
             .ne(&transaction_record.message_hash)
         {
             return Err(Error::InvalidTransaction(
-                "Transaction message hash doesn't match the original".to_string(),
+                "Transaction message hash doesn't match the original. Perhaps 'recent_blockhash' is set to a different value than in the original message?".to_string(),
             ));
         }
         signed_transaction.verify()?;
@@ -173,9 +178,24 @@ impl SolanaService {
         }
 
         // All checks passed, now we can submit the transaction.
-        let signature = self
-            .client
-            .send_and_confirm_transaction(&signed_transaction)?;
+        let signature =
+            self.client
+                .send_and_confirm_transaction(&signed_transaction)
+                .map_err(|err| {
+                    println!("{:?}", err);
+                    let transaction_error = err.kind.get_transaction_error().map(
+                        |transaction_error| match transaction_error {
+                            TransactionError::AccountNotFound => Error::WalletNotFound,
+                            TransactionError::InsufficientFundsForFee
+                            | TransactionError::InsufficientFundsForRent { account_index: _ } => {
+                                Error::WalletInsufficientFounds
+                            }
+                            _ => Error::GeneralError(transaction_error.to_string()),
+                        },
+                    );
+                    transaction_error.or(Some(err.into())).unwrap()
+                })?;
+
         transaction_record.client_signature = Some(signature);
         self.repo.update_transaction_record(&transaction_record)?;
 

@@ -78,12 +78,12 @@ impl IntoResponse for ErrorResp {
     }
 }
 
-use serde::Serialize;
-#[derive(Serialize)]
+use serde::{Deserialize, Serialize};
+#[derive(Serialize, Deserialize)]
 pub struct ErrorResp {
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing, skip_deserializing)]
     status_code: StatusCode,
-    error: String,
+    pub error: String,
 }
 
 impl ErrorResp {
@@ -105,6 +105,8 @@ impl From<crate::domain::error::Error> for ErrorResp {
             crate::domain::error::Error::TransactionNotFound => StatusCode::NOT_FOUND,
             crate::domain::error::Error::InvalidTransaction(_) => StatusCode::BAD_REQUEST,
             crate::domain::error::Error::TransactionExpired => StatusCode::FORBIDDEN,
+            crate::domain::error::Error::WalletNotFound => StatusCode::NOT_FOUND,
+            crate::domain::error::Error::WalletInsufficientFounds => StatusCode::CONFLICT,
         };
 
         let mut error_resp = value.to_string();

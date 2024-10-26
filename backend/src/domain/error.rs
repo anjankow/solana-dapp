@@ -9,6 +9,10 @@ pub enum Error {
     // transaction data is invalid or a signature is missing
     InvalidTransaction(String),
     TransactionExpired,
+    // Solana account with this pubkey doesn't exist
+    WalletNotFound,
+    // User's solana account has insufficient founds for this operation
+    WalletInsufficientFounds,
 }
 
 impl From<solana_sdk::pubkey::ParsePubkeyError> for Error {
@@ -45,6 +49,8 @@ impl std::fmt::Display for Error {
             Error::TransactionNotFound => write!(f, "TransactionNotFound"),
             Error::InvalidTransaction(msg) => write!(f, "InvalidTransaction: {}", msg),
             Error::TransactionExpired => write!(f, "TransactionExpired"),
+            Error::WalletNotFound => write!(f, "WalletNotFound"),
+            Error::WalletInsufficientFounds => write!(f, "WalletInsufficientFounds"),
         }
     }
 }

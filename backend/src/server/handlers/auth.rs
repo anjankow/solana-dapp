@@ -32,17 +32,17 @@ pub async fn post_register(
         .path_and_query("/api/v1/auth/register/complete")
         .build()
         .expect("Host is validated by extractor, path should be always valid");
-    Ok(Json(TransactionResp::from(
+    Ok(Json(TransactionResp::new(
         &transaction_to_sign,
         request_uri.to_string(),
     )))
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Deserialize, Clone, Serialize)]
 pub struct LoginCompleteResp {
-    access_token: String,
-    refresh_token: String,
-    token_type: String, // e.g. Bearer
+    pub access_token: String,
+    pub refresh_token: String,
+    pub token_type: String, // e.g. Bearer
 }
 
 #[derive(Serialize, Deserialize, Clone)]
