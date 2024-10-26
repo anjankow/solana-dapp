@@ -1,21 +1,24 @@
+pub mod app_state;
 mod domain;
 mod repo;
-mod server;
+pub mod server;
 mod utils;
 
 use solana_sdk::signature::Keypair;
 
+use crate::app_state::AppState;
 use crate::server::Server;
 
 #[tokio::main]
 async fn main() {
     // relative to Cargo
     let keypair_dir = "solana_program/target/deploy/";
-    let keypair = get_keypair_from_dir(keypair_dir);
+    let program_keypair = get_keypair_from_dir(keypair_dir);
     let auth_secret = jwt_simple::prelude::HS256Key::generate().to_bytes();
-    let cfg = server::Config::default();
-    let server = Server::new(cfg);
-    server.run(auth_secret, keypair).await.unwrap();
+
+    let app = AppState::new(app_state::Config::default(), auth_secret, program_keypair);
+    let server = Server::new(server::Config::default(), app);
+    server.run().await.unwrap();
 }
 
 fn get_keypair_from_dir(dir: &str) -> Keypair {

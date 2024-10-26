@@ -1,12 +1,10 @@
 use axum::extract::{Json, State};
 use serde::{Deserialize, Serialize};
 
-use crate::server::handlers::SignedTransaction;
-use crate::server::middleware::host_extractor::ExtractHostname;
-use crate::server::ErrorResp;
-use crate::server::{AppState, ACCESS_TOKEN_TYPE};
-
 use super::{parse_pubkey, TransactionResp};
+use crate::app_state::AppState;
+use crate::server::handlers::SignedTransaction;
+use crate::server::ErrorResp;
 
 #[derive(Deserialize)]
 pub struct PostRegisterReq {
@@ -14,23 +12,23 @@ pub struct PostRegisterReq {
     username: String,
 }
 
-#[derive(Serialize)]
-pub struct PostRegisterResp {
-    nonce: u64,
-}
-
 #[axum_macros::debug_handler]
 pub async fn post_register(
-    ExtractHostname(host): ExtractHostname,
     State(state): State<AppState>,
     Json(req): Json<PostRegisterReq>,
 ) -> Result<Json<TransactionResp>, ErrorResp> {
     let pubkey = parse_pubkey(&req.pubkey)?;
-    let transaction_to_sign = state.user_service.register_init(&pubkey, req.username)?;
+    let transaction_to_sign = state
+        .user_service
+        .register_init(&pubkey, req.username)
+        .inspect_err(|err| {
+            println!("Failed to init registration: {}", err);
+        })?;
 
     // We want /register/complete to be called next
     let request_uri = http::uri::Builder::new()
-        .authority(host)
+        .authority(state.cfg.server_config.bind_address)
+        .scheme(state.cfg.server_config.scheme)
         .path_and_query("/api/v1/auth/register/complete")
         .build()
         .expect("Host is validated by extractor, path should be always valid");
@@ -59,20 +57,31 @@ pub async fn post_register_complete(
     Json(req): Json<PostRegisterCompleteReq>,
 ) -> Result<Json<LoginCompleteResp>, ErrorResp> {
     let pubkey = parse_pubkey(&req.pubkey)?;
-    let (transaction_id, transaction) = req.data.parse()?;
+    let (transaction_id, transaction) = req.data.parse().inspect_err(|err| {
+        println!("Failed to parse transaction: {}", err.error);
+    })?;
 
     // First, execute the transaction creating user's PDA.
     state
         .solana_service
-        .execute_transaction(&pubkey, transaction_id, transaction)?;
+        .execute_transaction(&pubkey, transaction_id, transaction)
+        .inspect_err(|err| {
+            println!("Failed to execute registration transaction: {}", err);
+        })?;
 
     // Now update the user
-    let (access_token, refresh_token) = state.user_service.register_complete(&pubkey)?;
+    let (access_token, refresh_token) =
+        state
+            .user_service
+            .register_complete(&pubkey)
+            .inspect_err(|err| {
+                println!("Failed to complete registration: {}", err);
+            })?;
 
     Ok(Json(LoginCompleteResp {
         access_token: access_token,
         refresh_token: refresh_token,
-        token_type: ACCESS_TOKEN_TYPE.to_string(),
+        token_type: state.cfg.server_config.access_token_type,
     }))
 }
 

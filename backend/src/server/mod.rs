@@ -1,51 +1,45 @@
-mod app_state;
-mod handlers;
+pub mod handlers;
 mod middleware;
 
-use crate::{
-    domain::services::{solana_service, user_service},
-    server::app_state::AppState,
-};
+use crate::app_state::AppState;
 use axum::{
     routing::{get, post},
     Router,
 };
 
-const ACCESS_TOKEN_TYPE: &str = "Bearer";
+pub const ACCESS_TOKEN_TYPE_BEARER: &str = "Bearer";
 
 #[derive(Clone)]
 pub struct Config {
     pub bind_address: String,
-    pub solana_service_config: solana_service::Config,
-    pub user_service_config: user_service::Config,
+    pub scheme: http::uri::Scheme,
+    pub access_token_type: String,
 }
 
 impl Config {
     pub fn default() -> Config {
         Config {
             bind_address: "127.0.0.1:3000".to_string(),
-            solana_service_config: solana_service::Config::default(),
-            user_service_config: user_service::Config::default(),
+            scheme: http::uri::Scheme::HTTP,
+            access_token_type: ACCESS_TOKEN_TYPE_BEARER.to_string(),
         }
     }
 }
 
 pub struct Server {
     cfg: Config,
+    router: Router,
 }
 
 impl Server {
-    pub fn new(cfg: Config) -> Server {
-        Server { cfg }
+    pub fn new(cfg: Config, app_state: AppState) -> Server {
+        Server {
+            cfg,
+            router: Server::new_stateless_router().with_state(app_state),
+        }
     }
 
-    pub async fn run(
-        &self,
-        auth_secret: Vec<u8>,
-        program_keypair: Keypair,
-    ) -> Result<(), std::io::Error> {
-        let state = AppState::new(self.cfg.clone(), auth_secret, program_keypair);
-
+    pub fn new_stateless_router() -> Router<AppState> {
         let router = Router::new()
             .route("/", get(handlers::handler))
             .route("/api/v1/users/:pubkey", get(handlers::users::get_user))
@@ -53,9 +47,11 @@ impl Server {
             .route(
                 "/api/v1/auth/register/complete",
                 post(handlers::auth::post_register_complete),
-            )
-            .with_state(state);
+            );
+        router
+    }
 
+    pub async fn run(&self) -> Result<(), std::io::Error> {
         let listener = tokio::net::TcpListener::bind(&self.cfg.bind_address).await?;
 
         println!(
@@ -65,7 +61,7 @@ impl Server {
                 .map(|a| a.to_string())
                 .unwrap_or("<NO LOCAL ADDRESS>".to_string()),
         );
-        axum::serve(listener, router).await?;
+        axum::serve(listener, self.router.clone()).await?;
         Ok(())
     }
 }
@@ -83,7 +79,6 @@ impl IntoResponse for ErrorResp {
 }
 
 use serde::Serialize;
-use solana_sdk::signature::Keypair;
 #[derive(Serialize)]
 pub struct ErrorResp {
     #[serde(skip_serializing)]

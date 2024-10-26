@@ -26,6 +26,7 @@ solana-client = "2.0.13"
 solana-sdk = "2.0.13"
 tokio = {version="1.40.0", features = ["rt", "rt-multi-thread", "tokio-macros", "net", "macros"]}
 tokio-util = "0.7.12"
+ureq = {version="2.10.1",  features = ["json", "charset"]}
 uuid ={ version="1.11.0", features=["v4", "fast-rng"]}
 zeroize = { version = "1.7", default-features = false }
 

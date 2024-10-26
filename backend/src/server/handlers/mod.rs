@@ -23,7 +23,7 @@ pub fn parse_pubkey(pubkey: &String) -> Result<Pubkey, Error> {
         .inspect_err(|e| println!("Failed to parse pubkey: {}", e))
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionResp {
     pub message: Vec<u8>,
     pub transaction_id: String,
