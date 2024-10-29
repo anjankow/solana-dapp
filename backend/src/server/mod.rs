@@ -43,6 +43,12 @@ impl Server {
         let router = Router::new()
             .route("/", get(handlers::handler))
             .route("/api/v1/users/:pubkey", get(handlers::users::get_user))
+            .route("/api/v1/auth/login", post(handlers::auth::post_login_init))
+            .route(
+                "/api/v1/auth/login/complete",
+                post(handlers::auth::post_login_init),
+            )
+            .route("/api/v1/auth/refresh", post(handlers::auth::post_refresh))
             .route("/api/v1/auth/register", post(handlers::auth::post_register))
             .route(
                 "/api/v1/auth/register/complete",
@@ -107,6 +113,10 @@ impl From<crate::domain::error::Error> for ErrorResp {
             crate::domain::error::Error::TransactionExpired => StatusCode::FORBIDDEN,
             crate::domain::error::Error::WalletNotFound => StatusCode::NOT_FOUND,
             crate::domain::error::Error::WalletInsufficientFounds => StatusCode::CONFLICT,
+            crate::domain::error::Error::UserNotConfirmed => StatusCode::CONFLICT,
+            crate::domain::error::Error::InvalidAuthToken => StatusCode::FORBIDDEN,
+            crate::domain::error::Error::AuthTokenExpired => StatusCode::FORBIDDEN,
+            crate::domain::error::Error::InvalidSignature => StatusCode::FORBIDDEN,
         };
 
         let mut error_resp = value.to_string();

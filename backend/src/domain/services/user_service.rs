@@ -1,7 +1,10 @@
+use std::time::SystemTime;
+
 use crate::domain::error::{self, Error};
 use crate::domain::model::{TransactionToSign, User};
 use crate::repo::user::Repo;
 
+use solana_sdk::bs58::decode::DecodeTarget;
 use solana_sdk::pubkey::Pubkey;
 use uuid::Uuid;
 
@@ -10,12 +13,14 @@ use super::solana_service;
 #[derive(Clone)]
 pub struct Config {
     access_token_validity_sec: u32,
+    refresh_token_validity_sec: u32,
 }
 
 impl Config {
     pub fn default() -> Config {
         Config {
             access_token_validity_sec: 3600,
+            refresh_token_validity_sec: 7200,
         }
     }
 }
@@ -26,6 +31,12 @@ pub struct UserService {
     repo: Repo,
     auth_secret: Vec<u8>,
     solana: solana_service::SolanaService,
+}
+
+#[derive(Clone)]
+pub struct AuthTokens {
+    pub access_token: String,
+    pub refresh_token: String,
 }
 
 impl UserService {
@@ -47,18 +58,88 @@ impl UserService {
         self.repo.get_user(&pubkey)
     }
 
-    pub fn register_complete(
-        &self,
-        pubkey: &Pubkey,
-    ) -> Result<
-        (
-            String, /* access_token */
-            String, /* refresh_token */
-        ),
-        Error,
-    > {
+    pub fn login_init(&self, pubkey: &Pubkey) -> Result<String /* refresh_token */, Error> {
         let mut user: User = self.repo.get_user(pubkey)?;
         // Validate the user
+        if user.pda_pubkey.is_none() {
+            return Err(error::Error::UserNotConfirmed);
+        }
+
+        // User gets signed in by signing the refresh token.
+        // Generate one for this user.
+        self.assign_new_refresh_token(&mut user)
+    }
+
+    fn assign_new_refresh_token(&self, user: &mut User) -> Result<String, Error> {
+        let refresh_token = Uuid::new_v4().to_string();
+        user.refresh_token = Some(crate::domain::model::RefreshToken {
+            token: refresh_token.clone(),
+            valid_until: SystemTime::now()
+                .checked_add(std::time::Duration::from_secs(
+                    self.cfg.refresh_token_validity_sec as u64,
+                ))
+                .expect("Refresh token validity is invalid and causes time register overflow"),
+        });
+        self.repo.update_user(&user)?;
+
+        Ok(refresh_token)
+    }
+
+    pub fn login_complete(
+        &self,
+        pubkey: &Pubkey,
+        refresh_token: String,
+        signature: Vec<u8>,
+    ) -> Result<AuthTokens, Error> {
+        // Convert the signature
+        if signature.len().ne(&ed25519_dalek::SIGNATURE_LENGTH) {
+            println!("Invalid signature length");
+            return Err(error::Error::InvalidSignature);
+        }
+        let signature: ed25519_dalek::Signature = signature[0..ed25519_dalek::SIGNATURE_LENGTH]
+            .try_into()
+            .map_err(|err| {
+                println!("Casting to ed25519_dalek::Signature failed: {}", err);
+                error::Error::InvalidSignature
+            })?;
+
+        // Validate the user
+        let mut user: User = self.repo.get_user(pubkey)?;
+        if user.pda_pubkey.is_none() || user.refresh_token.is_none() {
+            // Possible only if this user hasn't confirmed the registration yet.
+            return Err(error::Error::UserNotConfirmed);
+        }
+
+        let expected_refresh_token = user
+            .refresh_token
+            .as_ref()
+            .ok_or(error::Error::UserNotConfirmed)?;
+
+        // Validate the given refresh token against the expectation
+        expected_refresh_token.verify(&refresh_token)?;
+
+        let verifier =
+            ed25519_dalek::VerifyingKey::from_bytes(&pubkey.to_bytes()).map_err(|_| {
+                error::Error::InvalidPubKey(
+                    "Failed to convert pubkey, impossible to verify signature".to_string(),
+                )
+            })?;
+
+        verifier
+            .verify_strict(refresh_token.as_bytes(), &signature)
+            .map_err(|_| {
+                println!("Signature verification failed");
+                error::Error::InvalidSignature
+            })?;
+
+        // All checks passed, can refresh the auth token now
+        self.assign_auth_tokens(&mut user)
+    }
+
+    pub fn register_complete(&self, pubkey: &Pubkey) -> Result<AuthTokens, Error> {
+        let mut user: User = self.repo.get_user(pubkey)?;
+
+        // In case of registration
         if user.pda_pubkey.is_some() {
             return Err(error::Error::UserAlreadyInitialized);
         }
@@ -68,14 +149,17 @@ impl UserService {
         user.pda_pubkey = Some(pda);
 
         // Generate access and refresh tokens
-        let access_token = self.generate_jwt_token(pubkey)?;
-        let refresh_token = Uuid::new_v4().to_string();
-        user.refresh_token = Some(refresh_token.clone());
+        self.assign_auth_tokens(&mut user)
+    }
 
-        // Save refresh token and pda_pubkey in user repo
-        self.repo.update_user(&user)?;
+    fn assign_auth_tokens(&self, user: &mut User) -> Result<AuthTokens, Error> {
+        let access_token = self.generate_jwt_token(&user.pubkey)?;
+        let refresh_token = self.assign_new_refresh_token(user)?;
 
-        Ok((access_token, refresh_token))
+        Ok(AuthTokens {
+            access_token,
+            refresh_token,
+        })
     }
 
     pub fn register_init(
@@ -85,24 +169,24 @@ impl UserService {
     ) -> Result<TransactionToSign, Error> {
         let user: User = User {
             pubkey: pubkey.clone(),
-            username: username,
+            username,
             pda_pubkey: None,
             refresh_token: None,
         };
 
         // Check if we already have this user, update if found.
-        let res = self
-            .repo
-            .get_user(&pubkey)
-            .and_then(|_| self.repo.update_user(&user));
+        let res = self.repo.get_user(&pubkey).and_then(|existing| {
+            // If the user has been already registered, don't overrride.
+            if existing.pda_pubkey.is_some() {
+                return Err(error::Error::UserAlreadyInitialized);
+            }
+            self.repo.update_user(&user)
+        });
 
-        // If the result is Err, there are 2 options:
-        // user doesn't exist yet (no error) or internal error.
         if let Err(err) = res {
             if err.eq(&Error::UserNotFound) {
                 self.repo.add_user(user.clone())?;
             } else {
-                // Internal error
                 return Err(err);
             }
         }

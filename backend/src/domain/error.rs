@@ -3,6 +3,10 @@ pub enum Error {
     GeneralError(String),
     InvalidPubKey(String),
     UserNotFound,
+    UserNotConfirmed,
+    InvalidAuthToken,
+    AuthTokenExpired,
+    InvalidSignature,
     UserAlreadyInitialized,
     // no such transaction is known to the server
     TransactionNotFound,
@@ -39,6 +43,12 @@ impl From<solana_sdk::transaction::TransactionError> for Error {
     }
 }
 
+impl From<uuid::Error> for Error {
+    fn from(_: uuid::Error) -> Self {
+        Error::InvalidAuthToken
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -51,6 +61,10 @@ impl std::fmt::Display for Error {
             Error::TransactionExpired => write!(f, "TransactionExpired"),
             Error::WalletNotFound => write!(f, "WalletNotFound"),
             Error::WalletInsufficientFounds => write!(f, "WalletInsufficientFounds"),
+            Error::UserNotConfirmed => write!(f, "UserNotConfirmed"),
+            Error::InvalidAuthToken => write!(f, "InvalidAuthToken"),
+            Error::AuthTokenExpired => write!(f, "AuthTokenExpired"),
+            Error::InvalidSignature => write!(f, "InvalidSignature"),
         }
     }
 }

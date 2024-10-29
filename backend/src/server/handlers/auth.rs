@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{parse_pubkey, TransactionResp};
 use crate::app_state::AppState;
+use crate::domain::services::user_service::AuthTokens;
 use crate::server::handlers::SignedTransaction;
 use crate::server::ErrorResp;
 
@@ -39,10 +40,69 @@ pub async fn post_register(
 }
 
 #[derive(Deserialize, Clone, Serialize)]
+pub struct LoginCompleteReq {
+    pubkey: String,
+    refresh_token: String,
+    signature: Vec<u8>,
+}
+
+#[derive(Deserialize, Clone, Serialize)]
 pub struct LoginCompleteResp {
     pub access_token: String,
     pub refresh_token: String,
     pub token_type: String, // e.g. Bearer
+}
+
+pub fn login_complete(
+    State(state): State<AppState>,
+    Json(req): Json<LoginCompleteReq>,
+) -> Result<Json<LoginCompleteResp>, ErrorResp> {
+    let pubkey = parse_pubkey(&req.pubkey)?;
+    let tokens = state
+        .user_service
+        .login_complete(&pubkey, req.refresh_token, req.signature)?;
+
+    Ok(Json(LoginCompleteResp {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        token_type: state.cfg.server_config.access_token_type,
+    }))
+}
+
+#[derive(Deserialize, Clone, Serialize)]
+pub struct RefreshReq {
+    pubkey: String,
+    refresh_token: String,
+    signature: Vec<u8>,
+}
+
+pub async fn post_refresh(
+    state: State<AppState>,
+    req: Json<LoginCompleteReq>,
+) -> Result<Json<LoginCompleteResp>, ErrorResp> {
+    login_complete(state, req)
+}
+
+#[derive(Deserialize, Clone, Serialize)]
+pub struct LoginInitReq {
+    pubkey: String,
+}
+
+#[derive(Deserialize, Clone, Serialize)]
+pub struct LoginInitResp {
+    refresh_token: String,
+}
+
+pub async fn post_login_init(
+    State(state): State<AppState>,
+    Json(req): Json<LoginInitReq>,
+) -> Result<Json<LoginInitResp>, ErrorResp> {
+    let pubkey = parse_pubkey(&req.pubkey)?;
+    let refresh_token = state.user_service.login_init(&pubkey).inspect_err(|err| {
+        println!("Failed to login user: {}", err);
+    })?;
+
+    Ok(Json(LoginInitResp { refresh_token }))
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -70,17 +130,16 @@ pub async fn post_register_complete(
         })?;
 
     // Now update the user
-    let (access_token, refresh_token) =
-        state
-            .user_service
-            .register_complete(&pubkey)
-            .inspect_err(|err| {
-                println!("Failed to complete registration: {}", err);
-            })?;
+    let tokens = state
+        .user_service
+        .register_complete(&pubkey)
+        .inspect_err(|err| {
+            println!("Failed to complete registration: {}", err);
+        })?;
 
     Ok(Json(LoginCompleteResp {
-        access_token: access_token,
-        refresh_token: refresh_token,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
         token_type: state.cfg.server_config.access_token_type,
     }))
 }
