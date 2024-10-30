@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::time::SystemTime;
 
 use crate::domain::error::{self, Error};
@@ -89,19 +90,13 @@ impl UserService {
         &self,
         pubkey: &Pubkey,
         refresh_token: String,
-        signature: Vec<u8>,
+        signature: String,
     ) -> Result<AuthTokens, Error> {
         // Convert the signature
-        if signature.len().ne(&ed25519_dalek::SIGNATURE_LENGTH) {
-            println!("Invalid signature length");
-            return Err(error::Error::InvalidSignature);
-        }
-        let signature: ed25519_dalek::Signature = signature[0..ed25519_dalek::SIGNATURE_LENGTH]
-            .try_into()
-            .map_err(|err| {
-                println!("Casting to ed25519_dalek::Signature failed: {}", err);
-                error::Error::InvalidSignature
-            })?;
+        let signature = ed25519_dalek::Signature::from_str(&signature).map_err(|err| {
+            println!("Casting to ed25519_dalek::Signature failed: {}", err);
+            error::Error::InvalidSignature
+        })?;
 
         // Validate the user
         let mut user: User = self.repo.get_user(pubkey)?;

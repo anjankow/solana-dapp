@@ -1,18 +1,11 @@
-use anti_loneliness_solana_dapp::app_state;
 use anti_loneliness_solana_dapp::domain;
 use anti_loneliness_solana_dapp::server;
 use anti_loneliness_solana_dapp::server::ErrorResp;
 use anti_loneliness_solana_dapp::utils;
-use anti_loneliness_solana_dapp::utils::jwt;
-use bincode::Options;
 use jwt_simple::claims::NoCustomClaims;
 use jwt_simple::prelude::HS256Key;
 use jwt_simple::prelude::MACLike;
-use serde::Deserialize;
-use serde::Serialize;
 use serde_json::json;
-use solana_sdk::instruction::CompiledInstruction;
-use solana_sdk::message::Message;
 use solana_sdk::transaction::Transaction;
 use solana_sdk::{signature::Keypair, signer::Signer};
 use std::process::Command;
@@ -22,7 +15,9 @@ mod common;
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_register_new_pubkey() {
     let auth_secret = HS256Key::generate();
-    let test_server = common::new_test_server_with_auth_secret(&auth_secret);
+    let test_server = common::TestServerBuilder::new()
+        .with_auth_secret(&auth_secret)
+        .build();
 
     let wallet = Keypair::new();
     println!("WALLET: {}", wallet.to_base58_string());
@@ -69,7 +64,7 @@ async fn test_register_new_pubkey() {
 
     // Pass it back to the server
     // REGISTER COMPLETE
-    let serialized_transaction = common::serialize_transaction(signed_transaction);
+    let serialized_transaction = utils::bincode::serialize(&signed_transaction).unwrap();
     let response = test_server
         .post(&register_resp.request_uri)
         .json(&json!({
@@ -99,8 +94,7 @@ async fn test_register_new_pubkey() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_register_new_pubkey_manipulated_message() {
-    let auth_secret = HS256Key::generate();
-    let test_server = common::new_test_server_with_auth_secret(&auth_secret);
+    let test_server = common::TestServerBuilder::new().build();
 
     let wallet = Keypair::new();
     println!("WALLET: {}", wallet.to_base58_string());
@@ -134,7 +128,7 @@ async fn test_register_new_pubkey_manipulated_message() {
 
     // Pass it back to the server
     // REGISTER COMPLETE
-    let serialized_transaction = common::serialize_transaction(signed_transaction);
+    let serialized_transaction = utils::bincode::serialize(&signed_transaction).unwrap();
     let response = test_server
         .post(&register_resp.request_uri)
         .json(&json!({
@@ -156,7 +150,7 @@ async fn test_register_new_pubkey_manipulated_message() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_register_new_pubkey_account_not_found() {
-    let test_server = common::new_default_test_server();
+    let test_server = common::TestServerBuilder::new().build();
 
     // this wallet does't exist on solana
     let wallet = Keypair::new();
@@ -185,7 +179,7 @@ async fn test_register_new_pubkey_account_not_found() {
 
     // Pass it back to the server
     // REGISTER COMPLETE
-    let serialized_transaction = common::serialize_transaction(signed_transaction);
+    let serialized_transaction = utils::bincode::serialize(&signed_transaction).unwrap();
     let response = test_server
         .post(&register_resp.request_uri)
         .json(&json!({

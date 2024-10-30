@@ -1,9 +1,7 @@
 pub mod auth;
 pub mod users;
-use crate::{
-    domain::{error::Error, model},
-    server::ErrorResp,
-};
+use crate::domain::error::Error;
+use crate::{domain::model, server::ErrorResp, utils};
 use bincode::Options;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -32,13 +30,17 @@ pub struct TransactionResp {
 }
 
 impl TransactionResp {
-    pub fn new(model: &model::TransactionToSign, request_uri: String) -> Self {
-        TransactionResp {
-            message: model.message.serialize(),
+    pub fn new(model: &model::TransactionToSign, request_uri: String) -> Result<Self, ErrorResp> {
+        let serialized_message = utils::bincode::serialize(&model.message).map_err(|e| {
+            Error::GeneralError("Failed to serialized message to TransactionToSign".to_string())
+        })?;
+
+        Ok(TransactionResp {
+            message: serialized_message,
             transaction_id: model.transaction_id.to_string(),
             valid_until: model.valid_until,
             request_uri: request_uri,
-        }
+        })
     }
 
     pub fn deserialize_message(&self) -> Result<Message, Error> {
@@ -94,7 +96,8 @@ mod tests {
             transaction_id: Uuid::new_v4(),
             valid_until: SystemTime::now(),
         };
-        let transaction = TransactionResp::new(&model_transaction, "localhost:9999".to_string());
+        let transaction =
+            TransactionResp::new(&model_transaction, "localhost:9999".to_string()).unwrap();
         assert!(transaction.message.len() > 0);
         assert_eq!(&transaction.request_uri, "localhost:9999");
 

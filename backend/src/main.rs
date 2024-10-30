@@ -4,9 +4,9 @@ mod repo;
 pub mod server;
 mod utils;
 
+use crate::app_state::AppStateBuiler;
 use solana_sdk::signature::Keypair;
 
-use crate::app_state::AppState;
 use crate::server::Server;
 
 #[tokio::main]
@@ -16,7 +16,8 @@ async fn main() {
     let program_keypair = get_keypair_from_dir(keypair_dir);
     let auth_secret = jwt_simple::prelude::HS256Key::generate().to_bytes();
 
-    let app = AppState::new(app_state::Config::default(), auth_secret, program_keypair);
+    let app =
+        AppStateBuiler::new().build(app_state::Config::default(), auth_secret, program_keypair);
     let server = Server::new(server::Config::default(), app);
     server.run().await.unwrap();
 }

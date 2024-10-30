@@ -5,6 +5,7 @@ pub mod solana {
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
+    #[derive(Clone)]
     pub struct Repo {
         transactions: Arc<Mutex<HashMap<Uuid, TransactionRecord>>>,
     }

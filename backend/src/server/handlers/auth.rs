@@ -1,4 +1,5 @@
 use axum::extract::{Json, State};
+use bincode::Options;
 use serde::{Deserialize, Serialize};
 
 use super::{parse_pubkey, TransactionResp};
@@ -6,6 +7,7 @@ use crate::app_state::AppState;
 use crate::domain::services::user_service::AuthTokens;
 use crate::server::handlers::SignedTransaction;
 use crate::server::ErrorResp;
+use crate::utils;
 
 #[derive(Deserialize)]
 pub struct PostRegisterReq {
@@ -33,17 +35,17 @@ pub async fn post_register(
         .path_and_query("/api/v1/auth/register/complete")
         .build()
         .expect("Host is validated by extractor, path should be always valid");
-    Ok(Json(TransactionResp::new(
-        &transaction_to_sign,
-        request_uri.to_string(),
-    )))
+    Ok(Json(
+        TransactionResp::new(&transaction_to_sign, request_uri.to_string())
+            .inspect_err(|e| println!("{}", e.error))?,
+    ))
 }
 
 #[derive(Deserialize, Clone, Serialize)]
 pub struct LoginCompleteReq {
     pubkey: String,
     refresh_token: String,
-    signature: Vec<u8>,
+    signature: String,
 }
 
 #[derive(Deserialize, Clone, Serialize)]
@@ -53,7 +55,7 @@ pub struct LoginCompleteResp {
     pub token_type: String, // e.g. Bearer
 }
 
-pub fn login_complete(
+pub async fn login_complete(
     State(state): State<AppState>,
     Json(req): Json<LoginCompleteReq>,
 ) -> Result<Json<LoginCompleteResp>, ErrorResp> {
@@ -80,7 +82,7 @@ pub async fn post_refresh(
     state: State<AppState>,
     req: Json<LoginCompleteReq>,
 ) -> Result<Json<LoginCompleteResp>, ErrorResp> {
-    login_complete(state, req)
+    login_complete(state, req).await
 }
 
 #[derive(Deserialize, Clone, Serialize)]
@@ -90,7 +92,7 @@ pub struct LoginInitReq {
 
 #[derive(Deserialize, Clone, Serialize)]
 pub struct LoginInitResp {
-    refresh_token: String,
+    pub refresh_token: String,
 }
 
 pub async fn post_login_init(
@@ -147,6 +149,7 @@ pub async fn post_register_complete(
 #[cfg(test)]
 mod tests {
     use bincode::Options;
+    use http::StatusCode;
     use serde::{Deserialize, Serialize};
     use solana_sdk::{
         hash::Hasher,
@@ -156,6 +159,8 @@ mod tests {
         signer::Signer,
         transaction,
     };
+
+    use crate::{server::ErrorResp, utils};
 
     #[test]
     fn test_serialize_transaction_bincode() {
@@ -176,16 +181,11 @@ mod tests {
         h.hash(&[1, 2, 3]);
         let transaction = transaction::Transaction::new(&[&from, &to], msg, h.result());
 
-        let serialized = bincode::options()
-            .with_little_endian()
-            .serialize(&transaction)
-            .unwrap();
+        let serialized = utils::bincode::serialize(&transaction).unwrap();
         println!("{:?}", String::from_utf8_lossy(&serialized));
 
-        let deserialized: transaction::Transaction = bincode::options()
-            .with_little_endian()
-            .deserialize(&serialized)
-            .unwrap();
+        let deserialized: transaction::Transaction =
+            utils::bincode::deserialize(serialized).unwrap();
         assert_eq!(deserialized.message().hash(), transaction.message().hash());
         assert_eq!(deserialized.signatures.len(), transaction.signatures.len());
         assert_eq!(deserialized.signatures[0], transaction.signatures[0]);

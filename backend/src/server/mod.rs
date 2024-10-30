@@ -40,20 +40,20 @@ impl Server {
     }
 
     pub fn new_stateless_router() -> Router<AppState> {
+        let auth_routes = Router::new()
+            .route("/login", post(handlers::auth::post_login_init))
+            .route("/login/complete", post(handlers::auth::login_complete))
+            .route("/refresh", post(handlers::auth::post_refresh))
+            .route("/register", post(handlers::auth::post_register))
+            .route(
+                "/register/complete",
+                post(handlers::auth::post_register_complete),
+            );
+
         let router = Router::new()
             .route("/", get(handlers::handler))
             .route("/api/v1/users/:pubkey", get(handlers::users::get_user))
-            .route("/api/v1/auth/login", post(handlers::auth::post_login_init))
-            .route(
-                "/api/v1/auth/login/complete",
-                post(handlers::auth::post_login_init),
-            )
-            .route("/api/v1/auth/refresh", post(handlers::auth::post_refresh))
-            .route("/api/v1/auth/register", post(handlers::auth::post_register))
-            .route(
-                "/api/v1/auth/register/complete",
-                post(handlers::auth::post_register_complete),
-            );
+            .nest("/api/v1/auth", auth_routes);
         router
     }
 
@@ -85,7 +85,7 @@ impl IntoResponse for ErrorResp {
 }
 
 use serde::{Deserialize, Serialize};
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResp {
     #[serde(skip_serializing, skip_deserializing)]
     status_code: StatusCode,
