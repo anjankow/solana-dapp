@@ -15,6 +15,7 @@ use super::solana_service;
 pub struct Config {
     access_token_validity_sec: u32,
     refresh_token_validity_sec: u32,
+    token_issuer: String,
 }
 
 impl Config {
@@ -22,6 +23,7 @@ impl Config {
         Config {
             access_token_validity_sec: 3600,
             refresh_token_validity_sec: 7200,
+            token_issuer: "anti-loneliness".to_string(),
         }
     }
 }
@@ -194,16 +196,22 @@ impl UserService {
     fn generate_jwt_token(&self, pubkey: &Pubkey) -> Result<String, Error> {
         use jwt_simple::prelude::*;
 
+        #[derive(Serialize, Deserialize)]
+        struct UserClaims {
+            pubkey: String,
+        }
+        let user_claims = UserClaims {
+            pubkey: pubkey.to_string(),
+        };
         // create a new key for the `HS256` JWT algorithm
         let key = HS256Key::from_bytes(&self.auth_secret);
         let nonce = Uuid::new_v4();
-        let jwt_id = crate::utils::jwt::generate_jwt_id(pubkey, &nonce);
 
-        let claims = Claims::create(Duration::from_secs(
-            self.cfg.access_token_validity_sec as u64,
-        ))
-        .with_issuer("anti-loneliness")
-        .with_jwt_id(jwt_id)
+        let claims = Claims::with_custom_claims(
+            user_claims,
+            Duration::from_secs(self.cfg.access_token_validity_sec as u64),
+        )
+        .with_issuer(&self.cfg.token_issuer)
         .with_nonce(nonce);
         let token = key.authenticate(claims).map_err(|err| {
             println!("Failed to generate auth token: {}", err);
