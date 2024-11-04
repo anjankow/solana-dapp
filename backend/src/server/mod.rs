@@ -1,6 +1,8 @@
 pub mod handlers;
 mod middleware;
 
+use std::sync::Arc;
+
 use crate::app_state::AppState;
 use axum::{
     routing::{get, post},
@@ -14,6 +16,7 @@ pub struct Config {
     pub bind_address: String,
     pub scheme: http::uri::Scheme,
     pub access_token_type: String,
+    pub auth_config: middleware::auth::AuthMiddlewareConfig,
 }
 
 impl Config {
@@ -22,7 +25,17 @@ impl Config {
             bind_address: "127.0.0.1:3000".to_string(),
             scheme: http::uri::Scheme::HTTP,
             access_token_type: ACCESS_TOKEN_TYPE_BEARER.to_string(),
+            auth_config: AuthMiddlewareConfig::new_with_default_values(
+                Arc::new(HS256Key::generate()),
+                AuthMiddlewareConfig::map_allowed_issuers(vec!["anti-loneliness".to_string()]),
+            ),
         }
+    }
+
+    pub fn default_with_auth_key(auth_secret: Arc<HS256Key>) -> Self {
+        let mut ret = Self::default();
+        let _ = ret.auth_config.with_auth_secret(auth_secret);
+        ret
     }
 }
 
@@ -34,12 +47,12 @@ pub struct Server {
 impl Server {
     pub fn new(cfg: Config, app_state: AppState) -> Server {
         Server {
-            cfg,
-            router: Server::new_stateless_router().with_state(app_state),
+            cfg: cfg.clone(),
+            router: Server::new_stateless_router(cfg).with_state(app_state),
         }
     }
 
-    pub fn new_stateless_router() -> Router<AppState> {
+    pub fn new_stateless_router(cfg: Config) -> Router<AppState> {
         let auth_routes = Router::new()
             .route("/login", post(handlers::auth::post_login_init))
             .route("/login/complete", post(handlers::auth::login_complete))
@@ -50,10 +63,18 @@ impl Server {
                 post(handlers::auth::post_register_complete),
             );
 
+        let user_router = Router::new().route(
+            "/:pubkey",
+            get(handlers::users::get_user), //.patch(handlers::users::patch_user),
+        );
+        // .layer(tower_http::auth::AsyncRequireAuthorizationLayer::new(
+        //     middleware::auth::AppAuth::new(auth_config),
+        // ));
         let router = Router::new()
             .route("/", get(handlers::handler))
-            .route("/api/v1/users/:pubkey", get(handlers::users::get_user))
+            .nest("/api/v1/user", user_router)
             .nest("/api/v1/auth", auth_routes);
+
         router
     }
 
@@ -84,7 +105,11 @@ impl IntoResponse for ErrorResp {
     }
 }
 
+use handlers::auth;
+use jwt_simple::prelude::HS256Key;
+use middleware::auth::AuthMiddlewareConfig;
 use serde::{Deserialize, Serialize};
+use tower::ServiceBuilder;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResp {
     #[serde(skip_serializing, skip_deserializing)]

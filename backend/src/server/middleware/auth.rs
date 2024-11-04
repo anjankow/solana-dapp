@@ -3,14 +3,15 @@
 
 use std::{collections::HashSet, str::FromStr, sync::Arc};
 
+use axum::{async_trait, extract::FromRequestParts};
 use jwt_simple::{
     common::VerificationOptions,
     prelude::{HS256Key, MACLike},
 };
 use serde::{Deserialize, Serialize};
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::pubkey::{self, Pubkey};
 
-pub const USER_PUBKEY_HEADER: &str = "user-pubkey";
+const USER_PUBKEY_HEADER: &str = "user-pubkey";
 
 #[derive(Clone, Debug)]
 pub struct AuthMiddlewareConfig {
@@ -19,47 +20,74 @@ pub struct AuthMiddlewareConfig {
     time_tolerance: jwt_simple::prelude::Duration,
     allowed_issuers: HashSet<String>,
     token_type: String,
+    allow_unauth: bool,
+    artificial_time: Option<jwt_simple::prelude::Duration>,
 }
 
 impl AuthMiddlewareConfig {
+    pub fn map_allowed_issuers(allowed_issuers: Vec<String>) -> HashSet<String> {
+        allowed_issuers.into_iter().collect()
+    }
+
+    pub fn with_auth_secret(&mut self, auth_secret: Arc<HS256Key>) -> &mut Self {
+        self.auth_secret = auth_secret;
+        self
+    }
+
+    pub fn with_aritificial_time(&mut self, unix_ts: u64) -> &mut Self {
+        self.artificial_time = Some(jwt_simple::prelude::UnixTimeStamp::new(unix_ts, 0));
+        self
+    }
+
     pub fn new(
-        auth_secret: Vec<u8>,
-        allowed_issuers: Vec<String>,
+        auth_secret: Arc<HS256Key>,
+        allowed_issuers: HashSet<String>,
         token_validity_sec: u64,
         time_tolerance_sec: u64,
         token_type: String,
+        allow_unauth: bool,
     ) -> Self {
-        let allowed_issuers_set: HashSet<String> = allowed_issuers.into_iter().collect();
-
         Self {
-            auth_secret: Arc::new(HS256Key::from_bytes(&auth_secret)),
+            auth_secret: auth_secret,
             validity: jwt_simple::prelude::Duration::from_secs(token_validity_sec),
             time_tolerance: jwt_simple::prelude::Duration::from_secs(time_tolerance_sec),
-            allowed_issuers: allowed_issuers_set,
+            allowed_issuers,
             token_type,
+            allow_unauth,
+            artificial_time: None,
         }
     }
 
-    fn new_with_default_values(auth_secret: Vec<u8>, allowed_issuers: Vec<String>) -> Self {
+    pub fn new_with_default_values(
+        auth_secret: Arc<HS256Key>,
+        allowed_issuers: HashSet<String>,
+    ) -> Self {
         Self::new(
             auth_secret,
             allowed_issuers,
             7200,
             300,
             "Bearer".to_string(),
+            false,
         )
     }
 }
 
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
-use http::{HeaderValue, Request, Response, StatusCode};
+use http::{request::Parts, HeaderValue, Request, Response, StatusCode};
 use http_body_util::Full;
 use tower_http::auth::AsyncAuthorizeRequest;
 
 #[derive(Clone)]
-struct AppAuth {
+pub struct AppAuth {
     cfg: AuthMiddlewareConfig,
+}
+
+impl AppAuth {
+    pub fn new(cfg: AuthMiddlewareConfig) -> Self {
+        Self { cfg }
+    }
 }
 
 impl<B> AsyncAuthorizeRequest<B> for AppAuth
@@ -75,6 +103,10 @@ where
         Box::pin(async move {
             let res = validate_auth_token(cfg.to_owned(), &mut request);
             if let Err(err) = res {
+                if cfg.allow_unauth {
+                    // we can skip the validation error
+                    return Ok(request);
+                }
                 let status = match err {
                     AuthError::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
                     _ => StatusCode::UNAUTHORIZED,
@@ -116,6 +148,7 @@ where
     options.allowed_issuers = Some(cfg.allowed_issuers.clone());
     options.time_tolerance = Some(cfg.time_tolerance);
     options.max_validity = Some(cfg.validity);
+    options.artificial_time = cfg.artificial_time;
 
     #[derive(Serialize, Deserialize)]
     struct UserClaims {
@@ -153,11 +186,42 @@ enum AuthError {
     InternalError,
 }
 
+pub struct AuthPubkey(pub Option<solana_sdk::pubkey::Pubkey>);
+
+#[async_trait]
+impl<S> FromRequestParts<S> for AuthPubkey
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let pubkey = parts.headers.get(USER_PUBKEY_HEADER);
+        if let Some(pubkey) = pubkey {
+            // validate the value
+            let err_invalid_value = (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid pubkey in extractor, perhaps auth middleware wasn't used?",
+            );
+            let pubkey = pubkey
+                .to_str()
+                .map(|p| Pubkey::from_str(&p).map_err(|_| err_invalid_value))
+                .map_err(|_| err_invalid_value)??;
+            Ok(AuthPubkey(Some(pubkey)))
+        } else {
+            Ok(AuthPubkey(None))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{AppAuth, AuthError, USER_PUBKEY_HEADER};
     use http::{Request, Response, StatusCode};
     use http_body_util::{BodyExt, Full};
+    use jwt_simple::prelude::HS256Key;
     use rstest::rstest;
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
@@ -184,9 +248,14 @@ mod tests {
     #[tokio::test]
     async fn test_auth_middleware_authorized() {
         let cfg = super::AuthMiddlewareConfig::new_with_default_values(
-            "qwertyuiopasdfghjklzxcvbnm123456".as_bytes().to_vec(),
-            vec!["test".to_string()],
-        );
+            Arc::new(HS256Key::from_bytes(
+                "qwertyuiopasdfghjklzxcvbnm123456".as_bytes(),
+            )),
+            super::AuthMiddlewareConfig::map_allowed_issuers(vec!["test".to_string()]),
+        )
+        .with_aritificial_time(1730749746)
+        .to_owned();
+
         let mut service = tower::ServiceBuilder::new()
             .layer(AsyncRequireAuthorizationLayer::new(AppAuth { cfg }))
             .service_fn(test_handler);
@@ -194,7 +263,7 @@ mod tests {
         let req = http::Request::builder()
             .method(http::Method::GET)
             .uri("/")
-            .header("Authorization", "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJ0ZXN0IiwiaWF0IjoxNzMwNzM1OTU3LCJleHAiOjI3MDg5NTY3NjQsImF1ZCI6Ind3dy5leGFtcGxlLmNvbSIsInN1YiI6InVzZXIiLCJwdWJrZXkiOiJBUlkzWURLY1RtYTZKTUw5VTRqdXVQdTZTZWRpUXVGWTJEaW9LaXFwa216cCJ9.wD-TfSyZ2k2qcYFjFNRbzOH43ygm3bBA4euoQcWKeJo")
+            .header("Authorization", "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJ0ZXN0IiwiaWF0IjoxNzMwNzQ5Nzc0LCJleHAiOjE3NjIyODYzNzQsImF1ZCI6Ind3dy5leGFtcGxlLmNvbSIsInN1YiI6InVzZXIiLCJwdWJrZXkiOiJBUlkzWURLY1RtYTZKTUw5VTRqdXVQdTZTZWRpUXVGWTJEaW9LaXFwa216cCJ9.-DPcH7cMMI6DJo7KY6SjFsvsuQnJamycuZF_aivaMSo")
             .body(Full::new(bytes::Bytes::default()))
             .unwrap();
 
@@ -220,8 +289,10 @@ mod tests {
     #[tokio::test]
     async fn test_auth_middleware_invalid_pubkey() {
         let cfg = super::AuthMiddlewareConfig::new_with_default_values(
-            "qwertyuiopasdfghjklzxcvbnm123456".as_bytes().to_vec(),
-            vec!["test".to_string()],
+            Arc::new(HS256Key::from_bytes(
+                "qwertyuiopasdfghjklzxcvbnm123456".as_bytes(),
+            )),
+            super::AuthMiddlewareConfig::map_allowed_issuers(vec!["test".to_string()]),
         );
         let mut service = tower::ServiceBuilder::new()
             .layer(AsyncRequireAuthorizationLayer::new(AppAuth { cfg }))
@@ -262,8 +333,10 @@ mod tests {
     #[tokio::test]
     async fn test_auth_middleware_invalid_token(#[case] input: &str) {
         let cfg = super::AuthMiddlewareConfig::new_with_default_values(
-            "qwertyuiopasdfghjklzxcvbnm123456".as_bytes().to_vec(),
-            vec!["test".to_string()],
+            Arc::new(HS256Key::from_bytes(
+                "qwertyuiopasdfghjklzxcvbnm123456".as_bytes(),
+            )),
+            super::AuthMiddlewareConfig::map_allowed_issuers(vec!["test".to_string()]),
         );
         let mut service = tower::ServiceBuilder::new()
             .layer(AsyncRequireAuthorizationLayer::new(AppAuth { cfg }))
@@ -297,8 +370,10 @@ mod tests {
     #[tokio::test]
     async fn test_auth_middleware_missing_token() {
         let cfg = super::AuthMiddlewareConfig::new_with_default_values(
-            "qwertyuiopasdfghjklzxcvbnm123456".as_bytes().to_vec(),
-            vec!["test".to_string()],
+            Arc::new(HS256Key::from_bytes(
+                "qwertyuiopasdfghjklzxcvbnm123456".as_bytes(),
+            )),
+            super::AuthMiddlewareConfig::map_allowed_issuers(vec!["test".to_string()]),
         );
         let mut service = tower::ServiceBuilder::new()
             .layer(AsyncRequireAuthorizationLayer::new(AppAuth { cfg }))

@@ -6,6 +6,7 @@ use anti_loneliness_solana_dapp::server::ErrorResp;
 use anti_loneliness_solana_dapp::utils;
 use bincode::Options;
 use ed25519_dalek::ed25519::signature::SignerMut;
+use http::StatusCode;
 use jwt_simple::claims::NoCustomClaims;
 use jwt_simple::prelude::HS256Key;
 use jwt_simple::prelude::MACLike;
@@ -88,4 +89,20 @@ async fn test_login_success() {
     );
 
     println!("{}", response.text());
+
+    // check if this token works
+    // GET USER
+    let response = test_server
+        .get(format!("/api/v1/users/{}", wallet.pubkey().to_string()).as_str())
+        .add_header(
+            "Authorization",
+            format!("Bearer {}", login_compl_resp.access_token),
+        )
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+
+    let get_user_resp: server::handlers::users::GetUserResp = response.json();
+    println!("{:?}", get_user_resp);
+    assert!(get_user_resp.owned);
+    assert_eq!(get_user_resp.pubkey, wallet.pubkey().to_string());
 }

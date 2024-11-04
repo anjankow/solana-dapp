@@ -31,7 +31,7 @@ pub struct TransactionResp {
 
 impl TransactionResp {
     pub fn new(model: &model::TransactionToSign, request_uri: String) -> Result<Self, ErrorResp> {
-        let serialized_message = utils::bincode::serialize(&model.message).map_err(|e| {
+        let serialized_message = utils::bincode::serialize(&model.message).map_err(|_| {
             Error::GeneralError("Failed to serialized message to TransactionToSign".to_string())
         })?;
 
@@ -80,7 +80,7 @@ impl SignedTransaction {
 mod tests {
     use std::time::SystemTime;
 
-    use solana_sdk::{instruction::AccountMeta, message::Message, transaction::Transaction};
+    use solana_sdk::{instruction::AccountMeta, message::Message};
     use uuid::Uuid;
 
     use crate::domain::model::TransactionToSign;
